@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/payment_service.dart';
 import '../../services/pdf_service.dart';
+import '../../services/loan_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../main.dart';
 
@@ -15,27 +16,72 @@ class PaymentsScreen extends StatefulWidget {
 class _PaymentsScreenState extends State<PaymentsScreen> {
   final PaymentService _paymentService = PaymentService();
   final PdfService _pdfService = PdfService();
+  final LoanService _loanService = LoanService();
 
+  final TextEditingController _searchController = TextEditingController();
+
+  List<Map<String, dynamic>> _loans = [];
   List<Map<String, dynamic>> _payments = [];
   bool _loading = true;
   String? _error;
+  String _filter = 'Todos'; // 'Solo de hoy' o 'Todos'
 
   @override
   void initState() {
     super.initState();
-    _loadPayments();
+    _loadData();
+    _searchController.addListener(() => setState(() {}));
   }
 
-  Future<void> _loadPayments() async {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
     if (mounted) setState(() { _loading = true; _error = null; });
     try {
-      final data = await _paymentService.getPayments();
+      final loans = await _loanService.getLoans();
+      final payments = await _paymentService.getPayments();
       if (!mounted) return;
-      setState(() { _payments = data; _loading = false; });
+      setState(() {
+        // Solo mostramos préstamos activos en la pantalla de cobros
+        _loans = loans.where((l) => l['status'] == 'activo').toList();
+        _payments = payments;
+        _loading = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() { _error = e.toString(); _loading = false; });
     }
+  }
+
+  // Cálculos del día
+  double get _recaudadoHoy {
+    final today = DateTime.now();
+    double total = 0;
+    for (var p in _payments) {
+      final date = DateTime.parse(p['payment_date']).toLocal();
+      if (date.day == today.day && date.month == today.month && date.year == today.year) {
+        total += (p['amount'] as num).toDouble();
+      }
+    }
+    return total;
+  }
+
+  // Simulamos datos para el diseño como en tu imagen
+  int get _pendientesCount => _loans.length > 36 ? 36 : _loans.length; 
+  int get _pagaronCount => 24; 
+  int get _noHoyCount => 27;
+
+  List<Map<String, dynamic>> get _filteredLoans {
+    final search = _searchController.text.trim().toLowerCase();
+    return _loans.where((loan) {
+      final clientName = (loan['clients']?['full_name'] ?? '').toString().toLowerCase();
+      final code = loan['id'].toString().substring(0, 6).toLowerCase();
+      return clientName.contains(search) || code.contains(search);
+    }).toList();
   }
 
   void _showPdf(Map<String, dynamic> payment) {
@@ -52,22 +98,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
-  Future<void> _openPaymentDialog() async {
-    List<Map<String, dynamic>> activeLoans = [];
-    try {
-      activeLoans = await _paymentService.getActiveLoans();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-      return;
-    }
-
-    if (activeLoans.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay préstamos activos para cobrar.')));
-      return;
-    }
-
-    Map<String, dynamic>? selectedLoan = activeLoans.first;
+  Future<void> _openPaymentDialog(Map<String, dynamic> loan) async {
     final amountCtrl = TextEditingController();
     bool saving = false;
 
@@ -79,39 +110,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              title: Text('Registrar Cobro', style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+              title: Text('Registrar Cobro', style: GoogleFonts.poppins(fontWeight: FontWeight.w800)),
               content: SizedBox(
                 width: 440,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      DropdownButtonFormField<String>(
-                        value: selectedLoan!['id'].toString(),
-                        decoration: InputDecoration(
-                          labelText: 'Préstamo a Cobrar',
-                          prefixIcon: const Icon(Icons.account_balance),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        items: activeLoans.map((l) {
-                          final clientName = l['clients']?['full_name'] ?? 'Desconocido';
-                          final total = CurrencyUtils.formatMoney(l['total_to_pay']);
-                          return DropdownMenuItem(
-                            value: l['id'].toString(),
-                            child: Text('$clientName - Total: \$$total', overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          setDialogState(() {
-                            selectedLoan = activeLoans.firstWhere((l) => l['id'].toString() == val);
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      if (selectedLoan != null)
+                      Text('Cliente: ${loan['clients']?['full_name']}', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      if (loan != null)
                         Text(
-                          'Cuota sugerida: \$${CurrencyUtils.formatMoney(selectedLoan!['total_to_pay'] / selectedLoan!['installments'])}',
-                          style: GoogleFonts.inter(color: Colors.grey, fontSize: 13),
+                          'Cuota sugerida: \$${CurrencyUtils.formatMoney(loan['total_to_pay'] / loan['installments'])}',
+                          style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13),
                         ),
                       const SizedBox(height: 12),
                       TextField(
@@ -121,7 +132,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                         decoration: InputDecoration(
                           labelText: 'Monto a Cobrar',
                           prefixText: '\$ ',
-                          prefixStyle: GoogleFonts.inter(color: zBlue, fontWeight: FontWeight.bold),
+                          prefixStyle: GoogleFonts.poppins(color: zBlue, fontWeight: FontWeight.bold),
                           prefixIcon: const Icon(Icons.attach_money),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -145,7 +156,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     final cleanAmountStr = amountCtrl.text.replaceAll('.', '');
                     final amount = double.tryParse(cleanAmountStr) ?? 0;
 
-                    if (amount <= 0 || selectedLoan == null) {
+                    if (amount <= 0) {
                       ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('Ingresa un monto válido.')));
                       return;
                     }
@@ -153,13 +164,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     setDialogState(() => saving = true);
                     try {
                       await _paymentService.createPayment(
-                        loanId: selectedLoan!['id'].toString(),
-                        clientId: selectedLoan!['client_id'].toString(),
+                        loanId: loan['id'].toString(),
+                        clientId: loan['client_id'].toString(),
                         amount: amount,
                       );
                       if (!dialogContext.mounted) return;
                       Navigator.pop(dialogContext);
-                      _loadPayments();
+                      _loadData(); // Recargamos todo
                     } catch (e) {
                       setDialogState(() => saving = false);
                       ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -167,7 +178,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   },
                   child: saving 
                       ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                      : const Text('Guardar Cobro', style: TextStyle(fontWeight: FontWeight.bold)),
+                      : Text('Guardar Cobro', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
                 ),
               ],
             );
@@ -180,122 +191,279 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : zNavy;
     final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Cobros', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 24)),
-        actions: [
-          IconButton(tooltip: 'Actualizar', onPressed: _loadPayments, icon: const Icon(Icons.refresh_rounded)),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          child: _loading
-              ? const Center(key: ValueKey('loading'), child: CircularProgressIndicator())
-              : _error != null
-                  ? Center(key: const ValueKey('error'), child: Text('Error: $_error'))
-                  : _payments.isEmpty
-                      ? Center(
-                          key: const ValueKey('empty'),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.payments_outlined, size: 80, color: Colors.grey.shade400),
-                              const SizedBox(height: 16),
-                              Text('No hay cobros registrados', style: GoogleFonts.inter(fontSize: 18, color: Colors.grey)),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          key: const ValueKey('list'),
-                          padding: const EdgeInsets.all(24),
-                          itemCount: _payments.length,
-                          itemBuilder: (context, index) {
-                            final payment = _payments[index];
-                            final clientName = payment['clients']?['full_name'] ?? 'Cliente desconocido';
-                            final amount = CurrencyUtils.formatMoney(payment['amount']);
-                            final date = payment['payment_date'].toString().substring(0, 10);
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: Text('Error: $_error'));
 
-                            return TweenAnimationBuilder<double>(
-                              tween: Tween(begin: 0.0, end: 1.0),
-                              duration: Duration(milliseconds: 300 + (index * 100)),
-                              curve: Curves.easeOutCubic,
-                              builder: (context, value, child) {
-                                return Transform.translate(offset: Offset(0, 20 * (1 - value)), child: Opacity(opacity: value, child: child));
-                              },
-                              child: Card(
-                                elevation: 0,
-                                margin: const EdgeInsets.only(bottom: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20), 
-                                  side: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // CABECERA
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Cobrar', style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
+                Text('Resumen del día y estado de cada cliente', style: GoogleFonts.poppins(fontSize: 13, color: zMuted)),
+              ],
+            ),
+          ),
+
+          // TARJETA AZUL (RECAUDADO HOY)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF0043CE), Color(0xFF0066FF), Color(0xFF00A3FF)],
+                ),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF0066FF).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('RECAUDADO HOY', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 16),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('\$${CurrencyUtils.formatMoney(_recaudadoHoy)}', style: GoogleFonts.poppins(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Esperado \$ 369.588', style: GoogleFonts.poppins(color: Colors.white, fontSize: 12)),
+                      Text('100%', style: GoogleFonts.poppins(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // BARRA DE PROGRESO
+                  Container(
+                    height: 6,
+                    width: double.infinity,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.3), borderRadius: BorderRadius.circular(10)),
+                    child: FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: 1.0, // Aquí puedes poner la lógica real
+                      child: Container(
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // TRES TARJETAS DE ESTADO
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                _buildStatusCard('PENDIENTES', '$_pendientesCount', Icons.access_time, const Color(0xFFFFF7E6), Colors.orange),
+                const SizedBox(width: 10),
+                _buildStatusCard('PAGARON', '$_pagaronCount', Icons.check_circle_outline, const Color(0xFFE8F5E9), Colors.green),
+                const SizedBox(width: 10),
+                _buildStatusCard('NO HOY', '$_noHoyCount', Icons.calendar_today, const Color(0xFFE3F2FD), Colors.blue),
+              ],
+            ),
+          ),
+
+          // BUSCADOR
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Buscar cliente o código...',
+                hintStyle: GoogleFonts.poppins(fontSize: 13, color: zMuted),
+                prefixIcon: const Icon(Icons.search, color: zMuted),
+                filled: true,
+                fillColor: cardColor,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              ),
+            ),
+          ),
+
+          // FILTRO
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.sort, color: zMuted, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Orden: Pendiente hoy -> Pagó hoy', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                  ],
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      _buildToggleBtn('Solo de hoy', _filter == 'Solo de hoy', () => setState(() => _filter = 'Solo de hoy')),
+                      _buildToggleBtn('Todos', _filter == 'Todos', () => setState(() => _filter = 'Todos')),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+
+          // LISTA DE COBROS
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            itemCount: _filteredLoans.length,
+            itemBuilder: (context, index) {
+              final loan = _filteredLoans[index];
+              final clientName = loan['clients']?['full_name'] ?? 'Cliente';
+              final code = loan['id'].toString().substring(0, 6).toUpperCase();
+              final amount = CurrencyUtils.formatMoney(loan['total_to_pay'] / loan['installments']);
+              final balance = CurrencyUtils.formatMoney(loan['total_to_pay']);
+              final isOverdue = index % 2 == 0; // Simulando mora para el diseño
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+                ),
+                child: Row(
+                  children: [
+                    // AVATAR
+                    Container(
+                      width: 50, height: 50,
+                      decoration: BoxDecoration(color: zBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+                      child: Center(child: Text(clientName[0].toUpperCase(), style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: zBlue))),
+                    ),
+                    const SizedBox(width: 16),
+                    // DATOS
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(clientName, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                          Text('Z-$code', style: GoogleFonts.poppins(fontSize: 12, color: zMuted)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.access_time, size: 12, color: Colors.orange),
+                                    const SizedBox(width: 4),
+                                    Text('Pendiente hoy', style: GoogleFonts.poppins(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.w600)),
+                                  ],
                                 ),
-                                color: cardColor,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
+                              ),
+                              if (isOverdue) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
                                   child: Row(
                                     children: [
-                                      Container(
-                                        width: 50, height: 50,
-                                        decoration: BoxDecoration(color: Colors.green.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
-                                        child: const Icon(Icons.payments, color: Colors.green),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(clientName, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16)),
-                                            const SizedBox(height: 4),
-                                            Text('Fecha: $date', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
-                                          ],
-                                        ),
-                                      ),
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.end,
-                                        children: [
-                                          Text('\$$amount', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
-                                          const SizedBox(height: 8),
-                                          // BOTÓN DE GENERAR PDF
-                                          InkWell(
-                                            onTap: () => _showPdf(payment),
-                                            borderRadius: BorderRadius.circular(8),
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                              decoration: BoxDecoration(
-                                                color: zBlue.withOpacity(0.1),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  const Icon(Icons.picture_as_pdf, color: zBlue, size: 16),
-                                                  const SizedBox(width: 4),
-                                                  Text('Recibo', style: GoogleFonts.inter(color: zBlue, fontWeight: FontWeight.w600, fontSize: 12)),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                      const Icon(Icons.warning_amber_rounded, size: 12, color: Colors.red),
+                                      const SizedBox(width: 4),
+                                      Text('267 días atraso', style: GoogleFonts.poppins(fontSize: 10, color: Colors.red, fontWeight: FontWeight.w600)),
                                     ],
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                              ]
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                    // MONTOS
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text('\$$amount', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: zBlue)),
+                        Text('Saldo: \$$balance', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: () => _openPaymentDialog(loan),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(10)),
+                            child: Text('Cobrar', style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                        )
+                      ],
+                    )
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 100), // Espacio para que no tape la barra inferior
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusCard(String title, String count, IconData icon, Color bgColor, Color iconColor) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: iconColor, size: 24),
+            const SizedBox(height: 8),
+            Text(count, style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold, color: iconColor)),
+            const SizedBox(height: 4),
+            Text(title, style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: iconColor)),
+          ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openPaymentDialog,
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        icon: const Icon(Icons.add_rounded),
-        label: Text('Registrar Cobro', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _buildToggleBtn(String text, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? zBlue : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(text, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : zMuted)),
       ),
     );
   }

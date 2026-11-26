@@ -9,10 +9,10 @@ import 'screens/home/home_screen.dart';
 import 'services/theme_service.dart';
 import 'services/notification_service.dart';
 
-const Color zNavy = Color(0xFF0F172A);
-const Color zBlue = Color(0xFF3B82F6);
-const Color zCyan = Color(0xFF06B6D4);
-const Color zBackground = Color(0xFFF8FAFC);
+// NUEVA PALETA DE COLORES BASADA EN LA IMAGEN
+const Color zBlue = Color(0xFF0056FF); // Azul vibrante principal
+const Color zNavy = Color(0xFF0F172A); // Azul oscuro para textos
+const Color zBackground = Color(0xFFF5F7FA); // Fondo gris muy claro
 const Color zText = Color(0xFF1E293B);
 const Color zMuted = Color(0xFF64748B);
 
@@ -20,7 +20,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await NotificationService.init(); // Inicializamos las notificaciones
+    await NotificationService.init();
     await Supabase.initialize(
       url: SupabaseConfig.supabaseUrl,
       // ignore: deprecated_member_use
@@ -46,12 +46,12 @@ class ZFinancesApp extends StatelessWidget {
       colorScheme: ColorScheme.fromSeed(
         seedColor: zBlue, 
         primary: zBlue, 
-        secondary: zCyan, 
         brightness: Brightness.light,
         surface: Colors.white,
       ),
       scaffoldBackgroundColor: zBackground,
-      textTheme: ThemeData.light().textTheme.apply(fontFamily: GoogleFonts.inter().fontFamily, bodyColor: zText, displayColor: zText),
+      // Usamos la fuente Poppins que se parece mucho a la de la imagen
+      textTheme: ThemeData.light().textTheme.apply(fontFamily: GoogleFonts.poppins().fontFamily, bodyColor: zText, displayColor: zText),
       appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, foregroundColor: zText, elevation: 0),
       inputDecorationTheme: _inputTheme(Colors.white, Colors.grey.shade200),
       elevatedButtonTheme: _buttonTheme(),
@@ -63,12 +63,11 @@ class ZFinancesApp extends StatelessWidget {
       colorScheme: ColorScheme.fromSeed(
         seedColor: zBlue, 
         primary: zBlue, 
-        secondary: zCyan, 
         brightness: Brightness.dark,
         surface: const Color(0xFF1E293B),
       ),
       scaffoldBackgroundColor: const Color(0xFF0F172A),
-      textTheme: ThemeData.dark().textTheme.apply(fontFamily: GoogleFonts.inter().fontFamily, bodyColor: Colors.white, displayColor: Colors.white),
+      textTheme: ThemeData.dark().textTheme.apply(fontFamily: GoogleFonts.poppins().fontFamily, bodyColor: Colors.white, displayColor: Colors.white),
       appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, foregroundColor: Colors.white, elevation: 0),
       inputDecorationTheme: _inputTheme(const Color(0xFF1E293B), Colors.grey.shade700),
       elevatedButtonTheme: _buttonTheme(),
@@ -93,11 +92,11 @@ class ZFinancesApp extends StatelessWidget {
     return InputDecorationTheme(
       filled: true,
       fillColor: fillColor,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-      labelStyle: const TextStyle(color: zMuted, fontSize: 15),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      labelStyle: const TextStyle(color: zMuted, fontSize: 14),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: borderColor)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: zBlue, width: 2)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: zBlue, width: 1.5)),
     );
   }
 
@@ -106,10 +105,10 @@ class ZFinancesApp extends StatelessWidget {
       style: ElevatedButton.styleFrom(
         backgroundColor: zBlue,
         foregroundColor: Colors.white,
-        elevation: 4,
-        minimumSize: const Size(double.infinity, 60),
+        elevation: 0,
+        minimumSize: const Size(double.infinity, 55),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
     );
   }

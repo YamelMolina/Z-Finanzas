@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/client_service.dart';
 import '../../main.dart';
+import '../../core/utils/currency_formatter.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
@@ -51,8 +52,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
       final document = (client['document_number'] ?? '').toString().toLowerCase();
       final phone = (client['phone'] ?? '').toString().toLowerCase();
       final matchesSearch = name.contains(search) || document.contains(search) || phone.contains(search);
+      
       final active = client['active'] == true;
       final matchesFilter = _filter == 'Todos' || (_filter == 'Activos' && active) || (_filter == 'Inactivos' && !active);
+      
       return matchesSearch && matchesFilter;
     }).toList();
   }
@@ -76,7 +79,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              title: Text(isEditing ? 'Editar cliente' : 'Nuevo cliente', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              title: Text(isEditing ? 'Editar cliente' : 'Nuevo cliente', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
               content: SizedBox(
                 width: 440,
                 child: SingleChildScrollView(
@@ -131,7 +134,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                   },
                   child: saving 
                       ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                      : Text(isEditing ? 'Guardar' : 'Registrar', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      : Text(isEditing ? 'Guardar' : 'Registrar', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
                 ),
               ],
             );
@@ -170,94 +173,197 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredClients;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : zNavy;
     final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
-    final borderColor = isDark ? Colors.grey.shade800 : const Color(0xFFE7ECF3);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Clientes', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(tooltip: 'Actualizar', onPressed: _loadClients, icon: const Icon(Icons.refresh)),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          child: _loading
-              ? const Center(key: ValueKey('loading'), child: CircularProgressIndicator())
-              : _error != null
-                  ? Center(key: const ValueKey('error'), child: Text('Error: $_error'))
-                  : Column(
-                      key: const ValueKey('content'),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: 'Buscar por nombre, documento o teléfono...',
-                              prefixIcon: const Icon(Icons.search),
-                              filled: true,
-                              fillColor: cardColor,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: filtered.isEmpty
-                              ? const Center(child: Text('No se encontraron clientes', style: TextStyle(color: Colors.grey)))
-                              : ListView.builder(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                                  itemCount: filtered.length,
-                                  itemBuilder: (context, index) {
-                                    final client = filtered[index];
-                                    final active = client['active'] == true;
-                                    final name = (client['full_name'] ?? 'Sin nombre').toString();
-
-                                    return Card(
-                                      color: cardColor,
-                                      elevation: 0,
-                                      margin: const EdgeInsets.only(bottom: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: borderColor)),
-                                      child: ListTile(
-                                        contentPadding: const EdgeInsets.all(12),
-                                        leading: CircleAvatar(
-                                          backgroundColor: isDark ? Colors.blue.withOpacity(0.2) : const Color(0xFFDBEAFE),
-                                          foregroundColor: zBlue,
-                                          child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                        ),
-                                        title: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: isDark ? Colors.white : zNavy)),
-                                        subtitle: Text(client['phone'] ?? 'Sin teléfono', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.black54)),
-                                        trailing: PopupMenuButton<String>(
-                                          icon: Icon(Icons.more_vert, color: isDark ? Colors.white70 : Colors.black54),
-                                          onSelected: (value) {
-                                            if (value == 'edit') _openClientDialog(client: client);
-                                            if (value == 'toggle') _toggleActive(client);
-                                          },
-                                          itemBuilder: (context) => [
-                                            const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                                            PopupMenuItem(value: 'toggle', child: Text(active ? 'Desactivar' : 'Activar')),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                      ],
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Clientes', style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
+                  Text('${_clients.length} registrados', style: GoogleFonts.poppins(fontSize: 13, color: zMuted)),
+                ],
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _openClientDialog(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: zBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  minimumSize: Size.zero,
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text('Nuevo', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
         ),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Buscar por nombre, documento, teléfono...',
+              hintStyle: GoogleFonts.poppins(fontSize: 13, color: zMuted),
+              prefixIcon: const Icon(Icons.search, color: zMuted),
+              filled: true,
+              fillColor: cardColor,
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+            ),
+          ),
+        ),
+
+        SizedBox(
+          height: 40,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            children: [
+              _buildChip('Todos', true),
+              _buildChip('Activos', false),
+              _buildChip('Inactivos', false),
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 10),
+        
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              const Icon(Icons.circle, size: 8, color: zBlue),
+              const SizedBox(width: 8),
+              Text('Mantén presionado un cliente para acciones rápidas', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? Center(child: Text('Error: $_error'))
+                  : _filteredClients.isEmpty
+                      ? Center(child: Text('No se encontraron clientes', style: GoogleFonts.poppins(color: zMuted)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount: _filteredClients.length,
+                          itemBuilder: (context, index) {
+                            final client = _filteredClients[index];
+                            final active = client['active'] == true;
+                            final name = (client['full_name'] ?? 'Sin nombre').toString();
+                            final phone = (client['phone'] ?? 'Sin teléfono').toString();
+                            final mockBalance = 150000; 
+
+                            return GestureDetector(
+                              onTap: () => _openClientDialog(client: client), // ABRE EL MODAL AL TOCAR
+                              onLongPress: () => _toggleActive(client), // ACTIVA/DESACTIVA AL MANTENER
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: cardColor,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Stack(
+                                      children: [
+                                        Container(
+                                          width: 50, height: 50,
+                                          decoration: BoxDecoration(color: zBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+                                          child: Center(child: Text(name[0].toUpperCase(), style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: zBlue))),
+                                        ),
+                                        if (active)
+                                          Positioned(
+                                            bottom: 0, right: 0,
+                                            child: Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.green, shape: BoxShape.circle, border: Border.all(color: cardColor, width: 2))),
+                                          )
+                                      ],
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                decoration: BoxDecoration(color: active ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                                child: Text(active ? 'Activo' : 'Inactivo', style: GoogleFonts.poppins(fontSize: 10, color: active ? Colors.green : Colors.grey, fontWeight: FontWeight.w600)),
+                                              )
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.phone, size: 14, color: zMuted),
+                                              const SizedBox(width: 4),
+                                              Text(phone, style: GoogleFonts.poppins(fontSize: 12, color: zMuted)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.account_balance_wallet, size: 14, color: zBlue),
+                                              const SizedBox(width: 4),
+                                              Text('\$${CurrencyUtils.formatMoney(mockBalance)}', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.bold, color: zBlue)),
+                                              const SizedBox(width: 4),
+                                              Text('saldo activo', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.star_border_rounded, color: zMuted),
+                                      onPressed: () {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Función de favoritos próximamente'))
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChip(String label, bool isSelected) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isSelected ? zBlue : (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E293B) : Colors.white),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isSelected ? zBlue : Colors.grey.shade300),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openClientDialog(),
-        backgroundColor: zBlue,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.person_add_alt_1),
-        label: Text('Nuevo cliente', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-      ),
+      child: Text(label, style: GoogleFonts.poppins(color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : zNavy), fontSize: 13, fontWeight: FontWeight.w600)),
     );
   }
 }

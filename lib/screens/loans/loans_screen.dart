@@ -21,9 +21,12 @@ class _LoansScreenState extends State<LoansScreen> {
   final ClientService _clientService = ClientService();
   final CollectorService _collectorService = CollectorService();
 
+  final TextEditingController _searchController = TextEditingController();
+
   List<Map<String, dynamic>> _loans = [];
   bool _loading = true;
   String? _error;
+  String _filter = 'Todos';
 
   final FocusNode _focusNode = FocusNode();
   final _shortcutKey = const SingleActivator(LogicalKeyboardKey.keyN, control: true);
@@ -32,11 +35,13 @@ class _LoansScreenState extends State<LoansScreen> {
   void initState() {
     super.initState();
     _loadLoans();
+    _searchController.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -50,6 +55,23 @@ class _LoansScreenState extends State<LoansScreen> {
       if (!mounted) return;
       setState(() { _error = e.toString(); _loading = false; });
     }
+  }
+
+  List<Map<String, dynamic>> get _filteredLoans {
+    final search = _searchController.text.trim().toLowerCase();
+    return _loans.where((loan) {
+      final clientName = (loan['clients']?['full_name'] ?? '').toString().toLowerCase();
+      final code = loan['id'].toString().substring(0, 6).toLowerCase();
+      final matchesSearch = clientName.contains(search) || code.contains(search);
+      
+      final status = loan['status'] ?? 'activo';
+      final matchesFilter = _filter == 'Todos' || 
+                            (_filter == 'Activos' && status == 'activo') ||
+                            (_filter == 'Finalizados' && status == 'pagado') ||
+                            (_filter == 'Cancelados' && status == 'cancelado');
+      
+      return matchesSearch && matchesFilter;
+    }).toList();
   }
 
   bool _isOverdue(Map<String, dynamic> loan) {
@@ -67,6 +89,12 @@ class _LoansScreenState extends State<LoansScreen> {
     final dueDate = startDate.add(Duration(days: totalDays));
     
     return DateTime.now().isAfter(dueDate);
+  }
+
+  String _formatDate(String isoDate) {
+    final date = DateTime.parse(isoDate).toLocal();
+    final months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return '${date.day} de ${months[date.month - 1]} de ${date.year}';
   }
 
   Future<void> _sendWhatsApp(Map<String, dynamic> loan) async {
@@ -93,12 +121,56 @@ class _LoansScreenState extends State<LoansScreen> {
     }
   }
 
+  // MENÚ DE OPCIONES AL TOCAR LA TARJETA
+  void _showLoanOptions(Map<String, dynamic> loan) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Opciones del Préstamo', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.payments, color: Colors.green),
+                title: Text('Registrar Cobro', style: GoogleFonts.poppins()),
+                onTap: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ve a la pestaña de Cobros para registrar el pago.')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.chat_bubble_outline, color: Colors.green),
+                title: Text('Enviar Recordatorio WhatsApp', style: GoogleFonts.poppins()),
+                onTap: () {
+                  Navigator.pop(context);
+                  _sendWhatsApp(loan);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.cancel_outlined, color: Colors.red),
+                title: Text('Cancelar Préstamo', style: GoogleFonts.poppins(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Función de cancelación en desarrollo.')));
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _openLoanDialog() async {
     List<Map<String, dynamic>> clients = [];
     List<Map<String, dynamic>> collectors = [];
     try {
       clients = await _clientService.getClients();
-      collectors = await _collectorService.getCollectors(); // Cargamos cobradores
+      collectors = await _collectorService.getCollectors();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -126,7 +198,7 @@ class _LoansScreenState extends State<LoansScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              title: Text('Nuevo Préstamo', style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+              title: Text('Nuevo Préstamo', style: GoogleFonts.poppins(fontWeight: FontWeight.w800)),
               content: SizedBox(
                 width: 440,
                 child: SingleChildScrollView(
@@ -147,7 +219,6 @@ class _LoansScreenState extends State<LoansScreen> {
                         onChanged: (val) => setDialogState(() => selectedClientId = val),
                       ),
                       const SizedBox(height: 16),
-                      // DROPDOWN DE COBRADOR (Opcional)
                       DropdownButtonFormField<String>(
                         value: selectedCollectorId,
                         decoration: InputDecoration(
@@ -172,7 +243,7 @@ class _LoansScreenState extends State<LoansScreen> {
                         decoration: InputDecoration(
                           labelText: 'Monto Prestado',
                           prefixText: '\$ ',
-                          prefixStyle: GoogleFonts.inter(color: zBlue, fontWeight: FontWeight.bold),
+                          prefixStyle: GoogleFonts.poppins(color: zBlue, fontWeight: FontWeight.bold),
                           prefixIcon: const Icon(Icons.attach_money),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -256,14 +327,13 @@ class _LoansScreenState extends State<LoansScreen> {
                         collectorId: selectedCollectorId,
                       );
                       
-                      // PROGRAMAMOS LA NOTIFICACIÓN
                       final clientName = clients.firstWhere((c) => c['id'] == selectedClientId)['full_name'];
                       int daysToAdd = 1;
                       if (frequency == 'semanal') daysToAdd = 7;
                       if (frequency == 'quincenal') daysToAdd = 15;
                       if (frequency == 'mensual') daysToAdd = 30;
                       
-                      final dueDate = DateTime.now().add(Duration(days: daysToAdd, hours: 9)); // Notifica a las 9 AM
+                      final dueDate = DateTime.now().add(Duration(days: daysToAdd, hours: 9));
                       
                       await NotificationService.scheduleLoanReminder(
                         id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
@@ -295,165 +365,239 @@ class _LoansScreenState extends State<LoansScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : zNavy;
     final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
 
     return CallbackShortcuts(
       bindings: { _shortcutKey: _openLoanDialog },
       child: Focus(
         focusNode: _focusNode,
         autofocus: true,
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text('Préstamos', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 24)),
-            actions: [
-              IconButton(tooltip: 'Actualizar', onPressed: _loadLoans, icon: const Icon(Icons.refresh_rounded)),
-              const SizedBox(width: 16),
-            ],
-          ),
-          body: SafeArea(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Préstamos', style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
+                      Text('${_loans.length} registrados', style: GoogleFonts.poppins(fontSize: 13, color: zMuted)),
+                    ],
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _openLoanDialog,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: zBlue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      minimumSize: Size.zero,
+                    ),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text('Nuevo', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Buscar por cliente o código...',
+                  hintStyle: GoogleFonts.poppins(fontSize: 13, color: zMuted),
+                  prefixIcon: const Icon(Icons.search, color: zMuted),
+                  filled: true,
+                  fillColor: cardColor,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                ),
+              ),
+            ),
+
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                children: [
+                  _buildChip('Todos', _filter == 'Todos', () => setState(() => _filter = 'Todos'), isDark),
+                  _buildChip('Activos', _filter == 'Activos', () => setState(() => _filter = 'Activos'), isDark),
+                  _buildChip('Finalizados', _filter == 'Finalizados', () => setState(() => _filter = 'Finalizados'), isDark),
+                  _buildChip('Cancelados', _filter == 'Cancelados', () => setState(() => _filter = 'Cancelados'), isDark),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+
+            Expanded(
               child: _loading
-                  ? const Center(key: ValueKey('loading'), child: CircularProgressIndicator())
+                  ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(key: const ValueKey('error'), child: Text('Error: $_error'))
-                      : _loans.isEmpty
-                          ? Center(
-                              key: const ValueKey('empty'),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.folder_open_rounded, size: 80, color: Colors.grey.shade400),
-                                  const SizedBox(height: 16),
-                                  Text('No hay préstamos registrados', style: GoogleFonts.inter(fontSize: 18, color: Colors.grey)),
-                                  const SizedBox(height: 8),
-                                  Text('Presiona Ctrl + N para crear uno nuevo', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey)),
-                                ],
-                              ),
-                            )
+                      ? Center(child: Text('Error: $_error'))
+                      : _filteredLoans.isEmpty
+                          ? Center(child: Text('No hay préstamos registrados', style: GoogleFonts.poppins(color: zMuted)))
                           : ListView.builder(
-                              key: const ValueKey('list'),
-                              padding: const EdgeInsets.all(24),
-                              itemCount: _loans.length,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              itemCount: _filteredLoans.length,
                               itemBuilder: (context, index) {
-                                final loan = _loans[index];
+                                final loan = _filteredLoans[index];
                                 final clientName = loan['clients']?['full_name'] ?? 'Cliente desconocido';
-                                final collectorName = loan['collectors']?['full_name']; // <-- COBRADOR
                                 final amount = CurrencyUtils.formatMoney(loan['amount']);
                                 final total = CurrencyUtils.formatMoney(loan['total_to_pay']);
                                 final installments = loan['installments'];
+                                final paidInstallments = 0; 
+                                final pendingAmount = loan['total_to_pay']; 
                                 final freq = loan['frequency'];
                                 final status = loan['status'];
-                                final isActive = status == 'activo';
+                                final code = loan['id'].toString().substring(0, 6).toUpperCase();
                                 final isOverdue = _isOverdue(loan);
+                                
+                                final progress = paidInstallments / installments;
 
-                                return TweenAnimationBuilder<double>(
-                                  tween: Tween(begin: 0.0, end: 1.0),
-                                  duration: Duration(milliseconds: 300 + (index * 100)),
-                                  curve: Curves.easeOutCubic,
-                                  builder: (context, value, child) {
-                                    return Transform.translate(
-                                      offset: Offset(0, 20 * (1 - value)),
-                                      child: Opacity(opacity: value, child: child),
-                                    );
-                                  },
-                                  child: Card(
-                                    elevation: 0,
-                                    margin: const EdgeInsets.only(bottom: 16),
-                                    shape: RoundedRectangleBorder(
+                                return GestureDetector(
+                                  onTap: () => _showLoanOptions(loan), // ABRE EL MENÚ AL TOCAR
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: cardColor,
                                       borderRadius: BorderRadius.circular(20),
-                                      side: BorderSide(color: isOverdue ? Colors.red : (isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
+                                      border: Border.all(color: isOverdue ? Colors.red : borderColor),
                                     ),
-                                    color: isOverdue ? Colors.red.withOpacity(0.05) : cardColor,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(20),
-                                      child: Column(
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Container(
-                                                width: 50, height: 50,
-                                                decoration: BoxDecoration(
-                                                  color: isOverdue ? Colors.red.withOpacity(0.2) : (isActive ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.2)),
-                                                  borderRadius: BorderRadius.circular(16),
-                                                ),
-                                                child: Icon(Icons.account_balance_rounded, color: isOverdue ? Colors.red : (isActive ? Colors.green : Colors.grey)),
-                                              ),
-                                              const SizedBox(width: 16),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(clientName, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16)),
-                                                    const SizedBox(height: 4),
-                                                    Text('Prestado: \$$amount  •  Total: \$$total', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
-                                                    const SizedBox(height: 4),
-                                                    // MOSTRAMOS EL COBRADOR SI TIENE
-                                                    if (collectorName != null)
-                                                      Text('Cobrador: $collectorName', style: GoogleFonts.inter(fontSize: 12, color: zBlue, fontWeight: FontWeight.w500)),
-                                                    Text('$installments cuotas ($freq)', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
-                                                  ],
-                                                ),
-                                              ),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                decoration: BoxDecoration(
-                                                  color: isOverdue ? Colors.red.withOpacity(0.2) : (isActive ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.2)),
-                                                  borderRadius: BorderRadius.circular(30),
-                                                ),
-                                                child: Text(
-                                                  isOverdue ? 'EN MORA' : status.toUpperCase(),
-                                                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: isOverdue ? Colors.red : (isActive ? Colors.green : Colors.grey)),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          if (isActive) ...[
-                                            const SizedBox(height: 16),
-                                            const Divider(height: 1),
-                                            const SizedBox(height: 12),
-                                            InkWell(
-                                              onTap: () => _sendWhatsApp(loan),
-                                              borderRadius: BorderRadius.circular(12),
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                                decoration: BoxDecoration(
-                                                  color: isOverdue ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Row(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    Icon(Icons.chat_bubble_outline, color: isOverdue ? Colors.red : Colors.green, size: 18),
-                                                    const SizedBox(width: 8),
-                                                    Text(
-                                                      isOverdue ? 'Cobrar Mora por WhatsApp' : 'Enviar recordatorio por WhatsApp', 
-                                                      style: GoogleFonts.inter(color: isOverdue ? Colors.red : Colors.green, fontWeight: FontWeight.w600, fontSize: 13)
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(clientName, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                                                Text('Z-$code • ${freq[0].toUpperCase()}${freq.substring(1)}', style: GoogleFonts.poppins(fontSize: 12, color: zMuted)),
+                                              ],
                                             ),
-                                          ]
-                                        ],
-                                      ),
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(color: isOverdue ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                                  child: Row(
+                                                    children: [
+                                                      Container(width: 6, height: 6, decoration: BoxDecoration(color: isOverdue ? Colors.red : Colors.green, shape: BoxShape.circle)),
+                                                      const SizedBox(width: 4),
+                                                      Text('0 días', style: GoogleFonts.poppins(fontSize: 10, color: isOverdue ? Colors.red : Colors.green, fontWeight: FontWeight.w600)),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                                  child: Text('Activo', style: GoogleFonts.poppins(fontSize: 10, color: Colors.green, fontWeight: FontWeight.w600)),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  icon: const Icon(Icons.chat_bubble_outline, size: 18, color: Colors.green),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(),
+                                                  onPressed: () => _sendWhatsApp(loan),
+                                                )
+                                              ],
+                                            )
+                                          ],
+                                        ),
+                                        const Divider(height: 24),
+                                        
+                                        Row(
+                                          children: [
+                                            Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                SizedBox(
+                                                  width: 55, height: 55,
+                                                  child: CircularProgressIndicator(
+                                                    value: progress,
+                                                    strokeWidth: 6,
+                                                    backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                                                    color: zBlue,
+                                                    strokeCap: StrokeCap.round,
+                                                  ),
+                                                ),
+                                                Text('${(progress * 100).toInt()}%', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: textColor)),
+                                              ],
+                                            ),
+                                            const SizedBox(width: 20),
+                                            
+                                            Expanded(
+                                              child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  _buildDataColumn('CAPITAL', '\$$amount', textColor),
+                                                  _buildDataColumn('CUOTA', '\$$total', textColor),
+                                                  _buildDataColumn('PENDIENTE', '\$$pendingAmount', Colors.orange),
+                                                ],
+                                              ),
+                                            )
+                                          ],
+                                        ),
+                                        const Divider(height: 24),
+
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text('Cuotas: $paidInstallments/$installments (${installments - paidInstallments} pend.)', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                                            Text('Próxima: ${_formatDate(loan['created_at'])}', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                                          ],
+                                        )
+                                      ],
                                     ),
                                   ),
                                 );
                               },
                             ),
             ),
-          ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: _openLoanDialog,
-            backgroundColor: zBlue,
-            foregroundColor: Colors.white,
-            elevation: 4,
-            icon: const Icon(Icons.add_rounded),
-            label: Text('Nuevo Préstamo', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-          ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildChip(String label, bool isSelected, VoidCallback onTap, bool isDark) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? zBlue : (isDark ? const Color(0xFF1E293B) : Colors.white),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? zBlue : Colors.grey.shade300),
+        ),
+        child: Text(label, style: GoogleFonts.poppins(color: isSelected ? Colors.white : (isDark ? Colors.white : zNavy), fontSize: 13, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  Widget _buildDataColumn(String title, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: GoogleFonts.poppins(fontSize: 9, fontWeight: FontWeight.w600, color: zMuted)),
+        const SizedBox(height: 2),
+        Text(value, style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+      ],
     );
   }
 }

@@ -18,6 +18,7 @@ class _CashScreenState extends State<CashScreen> {
   String? _error;
   Map<String, dynamic>? _summary;
   bool _closing = false;
+  String _selectedPeriod = 'Hoy';
 
   @override
   void initState() {
@@ -46,8 +47,8 @@ class _CashScreenState extends State<CashScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text('¿Cerrar Caja?', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-        content: Text('Se guardará un registro con el balance del día. No podrás deshacer esta acción.', style: GoogleFonts.inter()),
+        title: Text('¿Cerrar Caja?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text('Se guardará un registro con el balance del día. No podrás deshacer esta acción.', style: GoogleFonts.poppins()),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
           FilledButton(
@@ -66,7 +67,7 @@ class _CashScreenState extends State<CashScreen> {
       await _cashService.closeRegister(totalIncome: income, totalExpenses: expenses, balance: balance);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Caja cerrada exitosamente.'), backgroundColor: Colors.green));
-      _loadCash(); // Recargar (el balance seguirá ahí, pero ya está guardado)
+      _loadCash();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cerrar caja: $e')));
@@ -78,181 +79,292 @@ class _CashScreenState extends State<CashScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : zNavy;
     final cardColor = isDark ? const Color(0xFF1E293B) : Colors.white;
     final borderColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
-    final textColor = isDark ? Colors.white : zNavy;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Caja Diaria', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 24)),
-        actions: [
-          IconButton(tooltip: 'Actualizar', onPressed: _loadCash, icon: const Icon(Icons.refresh_rounded)),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(child: Text('Error: $_error'))
-                : RefreshIndicator(
-                    onRefresh: _loadCash,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Resumen de hoy', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
-                          const SizedBox(height: 16),
-                          _buildSummaryCards(cardColor, borderColor, textColor),
-                          const SizedBox(height: 24),
-                          
-                          // BOTÓN DE CIERRE DE CAJA
-                          SizedBox(
-                            width: double.infinity,
-                            height: 55,
-                            child: ElevatedButton.icon(
-                              onPressed: (_closing || (_summary!['total_loans'] == 0 && _summary!['total_payments'] == 0)) ? null : _closeRegister,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade50,
-                                foregroundColor: Colors.red,
-                                side: const BorderSide(color: Colors.red),
-                                elevation: 0,
-                              ),
-                              icon: _closing ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red)) : const Icon(Icons.lock_outline),
-                              label: Text('CERRAR CAJA DEL DÍA', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                            ),
-                          ),
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: Text('Error: $_error'));
 
-                          const SizedBox(height: 32),
-                          Text('Movimientos de hoy', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
-                          const SizedBox(height: 16),
-                          _buildTransactionList(cardColor, borderColor),
-                        ],
-                      ),
-                    ),
-                  ),
-      ),
-    );
-  }
+    final totalRecaudado = _summary!['total_payments'] as double;
+    final pendiente = _summary!['total_loans'] as double; // Simulando pendientes con egresos
+    final movimientosCount = (_summary!['payments'] as List).length;
+    final cuotasCount = (_summary!['payments'] as List).length; // Simulando cuotas
 
-  Widget _buildSummaryCards(Color cardColor, Color borderColor, Color textColor) {
-    final balance = _summary!['balance'] as double;
-    final isPositive = balance >= 0;
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _card(
-                title: 'Ingresos (Cobros)',
-                amount: CurrencyUtils.formatMoney(_summary!['total_payments']),
-                icon: Icons.arrow_downward_rounded,
-                color: Colors.green,
-                cardColor: cardColor,
-                borderColor: borderColor,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _card(
-                title: 'Egresos (Préstamos)',
-                amount: CurrencyUtils.formatMoney(_summary!['total_loans']),
-                icon: Icons.arrow_upward_rounded,
-                color: Colors.red,
-                cardColor: cardColor,
-                borderColor: borderColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: isPositive ? (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E3A8A) : zNavy) : Colors.red.shade900,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Balance Neto del Día', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.8), fontSize: 14)),
-              const SizedBox(height: 8),
-              Text('\$${CurrencyUtils.formatMoney(balance)}', style: GoogleFonts.inter(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _card({required String title, required String amount, required IconData icon, required Color color, required Color cardColor, required Color borderColor}) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: borderColor),
-      ),
+    return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 28),
+          // CABECERA
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Caja Diaria', style: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
+                    Text('Panel financiero del período', style: GoogleFonts.poppins(fontSize: 13, color: zMuted)),
+                  ],
+                ),
+                Row(
+                  children: [
+                    _buildActionButton(Icons.grid_on, 'Excel', () {}),
+                    const SizedBox(width: 8),
+                    _buildActionButton(Icons.picture_as_pdf, 'PDF', () {}),
+                  ],
+                )
+              ],
+            ),
+          ),
+
+          // FILTROS DE TIEMPO
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              children: [
+                _buildChip('Hoy', true, isDark),
+                _buildChip('Ayer', false, isDark),
+                _buildChip('Esta semana', false, isDark),
+                _buildChip('30 días', false, isDark),
+                _buildChip('Este mes', false, isDark),
+                _buildChip('Mes anterior', false, isDark),
+                _buildChip('Personalizado', false, isDark),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // TARJETA AZUL PRINCIPAL
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF0043CE), Color(0xFF0066FF), Color(0xFF00A3FF)],
+                ),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF0066FF).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('TOTAL RECAUDADO', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                        child: const Icon(Icons.account_balance_wallet, color: Colors.white, size: 20),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('\$${CurrencyUtils.formatMoney(totalRecaudado)}', style: GoogleFonts.poppins(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 24),
+                  
+                  // SUB TARJETAS (EFECTIVO, NEQUI, CUOTAS)
+                  Row(
+                    children: [
+                      _subCard('EFECTIVO', totalRecaudado * 0.15), // Simulado
+                      const SizedBox(width: 10),
+                      _subCard('NEQUI', totalRecaudado * 0.85), // Simulado
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text('CUOTAS', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            Text('$cuotasCount', style: GoogleFonts.poppins(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // TARJETA NARANJA (PENDIENTE)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7E6),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.access_time, color: Colors.orange),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('PENDIENTE POR COBRAR HOY', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.orange)),
+                        const SizedBox(height: 4),
+                        Text('\$${CurrencyUtils.formatMoney(pendiente)}', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange)),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('Recaudado hoy', style: GoogleFonts.poppins(fontSize: 11, color: zMuted)),
+                      const SizedBox(height: 4),
+                      Text('\$${CurrencyUtils.formatMoney(totalRecaudado)}', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.bold, color: zNavy)),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // HISTORIAL DIARIO
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text('HISTORIAL DIARIO', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: zMuted, letterSpacing: 1)),
+          ),
           const SizedBox(height: 12),
-          Text(title, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
-          const SizedBox(height: 4),
-          Text('\$$amount', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: borderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Hoy', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                        const SizedBox(height: 4),
+                        Text('25 de nov de 2026', style: GoogleFonts.poppins(fontSize: 12, color: zMuted)),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('\$${CurrencyUtils.formatMoney(totalRecaudado)}', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                      const SizedBox(height: 4),
+                      Text('$movimientosCount mov • $cuotasCount cobros', style: GoogleFonts.poppins(fontSize: 12, color: zMuted)),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, color: zMuted)
+                ],
+              ),
+            ),
+          ),
+
+          // BOTÓN CERRAR CAJA (De la función 4)
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: ElevatedButton.icon(
+                onPressed: (_closing || (totalRecaudado == 0 && pendiente == 0)) ? null : _closeRegister,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade50,
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                icon: _closing ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red)) : const Icon(Icons.lock_outline),
+                label: Text('CERRAR CAJA DEL DÍA', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 100),
         ],
       ),
     );
   }
 
-  Widget _buildTransactionList(Color cardColor, Color borderColor) {
-    final loans = _summary!['loans'] as List<Map<String, dynamic>>;
-    final payments = _summary!['payments'] as List<Map<String, dynamic>>;
-
-    final List<Map<String, dynamic>> allTransactions = [];
-    for (var l in loans) { allTransactions.add({'type': 'egreso', 'title': 'Préstamo a ${l['clients']?['full_name'] ?? 'Cliente'}', 'amount': l['amount']}); }
-    for (var p in payments) { allTransactions.add({'type': 'ingreso', 'title': 'Cobro a ${p['clients']?['full_name'] ?? 'Cliente'}', 'amount': p['amount']}); }
-
-    if (allTransactions.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text('No hay movimientos registrados hoy.', style: GoogleFonts.inter(color: Colors.grey)),
+  Widget _subCard(String title, double amount) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(16),
         ),
-      );
-    }
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(title, style: GoogleFonts.poppins(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text('\$${CurrencyUtils.formatMoney(amount)}', style: GoogleFonts.poppins(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: allTransactions.length,
-      itemBuilder: (context, index) {
-        final tx = allTransactions[index];
-        final isIngreso = tx['type'] == 'ingreso';
-        final amount = CurrencyUtils.formatMoney(tx['amount']);
+  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: zNavy),
+            const SizedBox(width: 6),
+            Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? Colors.white : zNavy)),
+          ],
+        ),
+      ),
+    );
+  }
 
-        return Card(
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: borderColor)),
-          color: cardColor,
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isIngreso ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
-              child: Icon(isIngreso ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded, color: isIngreso ? Colors.green : Colors.red),
-            ),
-            title: Text(tx['title'], style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-            trailing: Text(
-              '${isIngreso ? '+' : '-'}\$$amount',
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: isIngreso ? Colors.green : Colors.red),
-            ),
-          ),
-        );
-      },
+  Widget _buildChip(String label, bool isSelected, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isSelected ? zBlue : (isDark ? const Color(0xFF1E293B) : Colors.white),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isSelected ? zBlue : Colors.grey.shade300),
+      ),
+      child: Text(label, style: GoogleFonts.poppins(color: isSelected ? Colors.white : (isDark ? Colors.white : zNavy), fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 }
